@@ -41,9 +41,26 @@ double table[3][10]{
   }
 };
 
-double get_c(){
-  std::cout << "enter voltage value" << std::endl;
-  double val;
+double mv_to_c(float val){
+  int range;
+  if (val >= -5.891 && val <= 0.0){
+    range = 0;
+  } else if (val > 0.0 && val <= 20.644){
+    range = 1;
+  } else if (val > 20.644 && val <= 54.886){
+    range = 2;
+  } else{
+    return -999;
+  }
+  double temp_c;
+  for (int i = 0; i < 10; i++){
+    temp_c = temp_c + table[range][i] * pow(val, i);
+  }
+  return temp_c;
+}
+
+float get_c(float val){
+
   std::cin >> val;
   int range;
   if (val >= -5.891 && val <= 0.0){
@@ -64,10 +81,18 @@ double get_c(){
     temp_c = temp_c + table[range][i] * pow(val, i);
   }
   std::cout << temp_c << std::endl;
+  return temp_c;
 };
 
 int main(){
-
-  double a = get_c();
-  std::cout << a << std::endl;
+  while (true){
+    std::cout << "enter voltage value" << std::endl;
+    float b;
+    std::cin >> b;
+    float a = mv_to_c(b);
+    std::cout << a << std::endl;
+  }
 }
+
+
+

@@ -45,39 +45,45 @@ double table[3][10]{
   }
 };
 
-double mv_to_C(double val){
-  int range;
+double mv_to_c(float val){
+  int range = 0;
   if (val >= -5.891 && val <= 0.0){
     range = 0;
   } else if (val > 0.0 && val <= 20.644){
     range = 1;
   } else if (val > 20.644 && val <= 54.886){
     range = 2;
-  } else{
-    return -999;
-  }
-  double temp_c;
+  } else Serial.println("error - value is out of range");
+
+  double temp_c =  0;
   for (int i = 0; i < 10; i++){
     temp_c = temp_c + table[range][i] * pow(val, i);
   }
+  temp_c = temp_c * 1000;
+  temp_c = temp_c + 25;
+  return temp_c;
+}
+
+void serialEvent(){
+
 }
 
 void setup(void){
   Serial.begin(115200);     //fast baud rate for pc com port
-  Serial4.begin(57600);     //slower baud rate for keithley
+  Serial4.begin(115200);     //slower baud rate for keithley
   Serial5.begin(57600);     //start multiple serial ports
 
   if (!SD.begin(SD_CONFIG)){                      //start SD card interface
     Serial.println("initialization failed!");     //checkk SD initialization state
     return;
   }
-
+/*
   Serial.println("enter file name:");
   while (!Serial.available());                    //wait for file name
   String file_name = Serial.readString();
   file_name += ".csv";                            //file type .csv
   FsFile file;                                    //create interface
-  /*  file = SD.open(file_name, FILE_WRITE);            //make file
+    file = SD.open(file_name, FILE_WRITE);            //make file
     Serial.println()
     while (!Serial.available());
     file.println(Serial.readString());
@@ -86,5 +92,13 @@ void setup(void){
 }
 
 void loop(void){
+  Serial4.println("MEASure:VOLTage:DC?"); //send measurement command
+  while (!Serial4.available()); //wait for response from device
+  String exp = Serial4.readString();
+  float mv = exp.toFloat();
+  Serial.print(mv, 5);
 
+float temp_c = mv_to_c(mv);
+  Serial.print(" - temp - ");
+  Serial.println(temp_c, 5);
 }

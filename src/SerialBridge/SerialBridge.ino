@@ -46,7 +46,7 @@ double table[3][10]{
 void setup(){
   Serial.begin(115200);
   Serial4.begin(115200);
-  Serial5.begin(115200);
+  Serial5.begin(57600);
 
   if (!SD.begin(SD_CONFIG)){
     Serial.println("initialization failed!");
@@ -71,10 +71,13 @@ void loop(){
   }
   if (Serial5.available() > 0){
     incomingByte = Serial5.readString();
-    Serial.print("device received: ");
+    Serial.print("keithley received: ");
     Serial.println(incomingByte);
-    Serial5.print("UART received:");
-    Serial5.println(incomingByte);
+  }
+  if (Serial4.available() > 0){
+    incomingByte = Serial4.readString();
+    Serial.print("GWinstek received: ");
+    Serial.println(incomingByte);
   }
 }
 
