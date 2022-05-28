@@ -1,10 +1,12 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <SdFat.h>
+#include <InternalTemperature.h>
 
 #define SD_CONFIG  SdioConfig(FIFO_SDIO)
 SdFat SD;
-
+FsFile file;                                    //create interface
+String filename_data = "test.csv", filename_info = "test.txt";
 double table[3][10]{
   {
     0.0000000E+00,
@@ -55,7 +57,7 @@ double mv_to_c(float val){
     range = 2;
   } else Serial.println("error - value is out of range");
 
-  double temp_c =  0;
+  double temp_c = 0;
   for (int i = 0; i < 10; i++){
     temp_c = temp_c + table[range][i] * pow(val, i);
   }
@@ -64,41 +66,77 @@ double mv_to_c(float val){
   return temp_c;
 }
 
-void serialEvent(){
+float get_temp_c(){
+  Serial4.println("MEASure:VOLTage:DC?"); //send measurement command
+  while (!Serial4.available()); //wait for response from device
+  String reading = Serial4.readString();
+  float mv = reading.toFloat();
+  float temp_c = mv_to_c(mv) + InternalTemperature.readTemperatureC(); //compensate for room temperature with internal sensor
+  return temp_c;
+}
 
+String wire_mode = "4", compliance_v = "21", curr_min = "0.0001", curr_max = "0.005", curr_step = "0.0001", interval_c = "1";
+
+void serialEvent(){
+  String command = Serial.readStringUntil(' ');
+  if (command == "help"){
+    Serial.println("command list:     \n ----");
+  } else if (command == "setup"){
+    Serial.println("setup - [file_name] [sample_id] [date]");
+    while (!Serial.available());                                        //wait for response from user
+    String val1, val2, val3;
+    for (int i = 0; i < 3 && Serial.available(); i++){              //read user input
+      val1 = Serial.readStringUntil(' ');
+      val2 = Serial.readStringUntil(' ');
+      val3 = Serial.readStringUntil(' ');
+      Serial.println(val1 + " " + val2 + " " + val3);
+    }
+    filename_info = val1;
+    filename_info += ".txt";
+    file = SD.open(filename_info, FILE_WRITE); //open file
+    file.println("sample_id: " + val2 + " date: " + val3);
+    file.close();                              //close file
+    filename_data = val1 += ".csv";
+    Serial5.println("FORM:ELEM?");
+    Serial5.println("SYST:BEEP:STAT OFF");
+    while (!Serial5.available());
+    file = SD.open(filename_data, FILE_WRITE); //open file
+    file.println(Serial5.readString());
+    file.close();                              //close file
+    Serial.println("files written - " + filename_data + " : " + filename_info);
+  }
 }
 
 void setup(void){
-  Serial.begin(115200);     //fast baud rate for pc com port
-  Serial4.begin(115200);     //slower baud rate for keithley
-  Serial5.begin(57600);     //start multiple serial ports
-
-  if (!SD.begin(SD_CONFIG)){                      //start SD card interface
-    Serial.println("initialization failed!");     //checkk SD initialization state
+  Serial.begin(115200);                              //fast baud rate for pc com port
+  Serial4.begin(115200);                             //fast baud rate for GWinstek
+  Serial5.begin(57600);                              //slower baud rate for keithley
+  while (!Serial);                                   //wait for serial connection
+  if (!SD.begin(SD_CONFIG)){                         //start SD card interface
+    Serial.println("SD initialization failed!");     //checkk SD initialization state
     return;
   }
-/*
-  Serial.println("enter file name:");
-  while (!Serial.available());                    //wait for file name
-  String file_name = Serial.readString();
-  file_name += ".csv";                            //file type .csv
-  FsFile file;                                    //create interface
-    file = SD.open(file_name, FILE_WRITE);            //make file
-    Serial.println()
-    while (!Serial.available());
-    file.println(Serial.readString());
-    file.close();
-    */
+
+  int com_state = 2;
+  Serial4.println("*IDN?");
+  Serial5.println("*IDN?");
+  while (com_state > 0){
+    if (Serial4.available() > 0){
+      Serial.println(Serial4.readString());
+      com_state = com_state - 1;
+    }
+    if (Serial5.available() > 0){
+      Serial.println(Serial5.readString());
+      com_state = com_state - 1;
+    }
+    Serial.printf("comstate = %d\n", com_state);
+  }
+  Serial.println("connected!");
 }
 
 void loop(void){
-  Serial4.println("MEASure:VOLTage:DC?"); //send measurement command
-  while (!Serial4.available()); //wait for response from device
-  String exp = Serial4.readString();
-  float mv = exp.toFloat();
-  Serial.print(mv, 5);
-
-float temp_c = mv_to_c(mv);
+  /*float temp_c = get_temp_c();
   Serial.print(" - temp - ");
-  Serial.println(temp_c, 5);
+  Serial.println(temp_c, 5);*/
+
 }

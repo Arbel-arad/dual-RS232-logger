@@ -48,7 +48,7 @@ void setup(){
   Serial4.begin(115200);
   Serial5.begin(57600);
 
-  if (!SD.begin(SD_CONFIG)){
+  /*if (!SD.begin(SD_CONFIG)){
     Serial.println("initialization failed!");
     return;
   }
@@ -56,7 +56,7 @@ void setup(){
   file = SD.open("0.csv", FILE_WRITE);
   while (!Serial.available());
   file.println(Serial.readString());
-  file.close();
+  file.close();*/
 }
 
 void loop(){

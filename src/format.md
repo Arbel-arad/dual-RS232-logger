@@ -13,7 +13,7 @@
 - set measurment interval (μA)
 - set measurment interval (℃)
 - set number of samples for each temperature
-- `| temperature compansation | ?`
+- `| temperature compansation |` - compensating with internal sensor. `heatsink required`
 - list folders
 - help (command list)
 ## current range:
@@ -24,3 +24,16 @@ ask for MIN and MAX. rounds to one sample after max. rounds
 
 `allow setting number of samples for range?`
 
+
+
+## keithley commands for measurment:
+- SOUR:CURR 0.00001 --> set current level
+- FORM:ELEM? --> list format of output
+- :CONF:VOLT:DC --> turn on the source
+- READ? --> return new reading
+<hr />
+
+- SYST:RSEN ON --> 4 wire mode
+- :SYSTem:KEY 19 --> source type current
+- OUTP:STAT ON --> output on/off
+- SYST:BEEP:STAT OFF --> beeper off

@@ -83,7 +83,6 @@ float get_c(float val){
   std::cout << temp_c << std::endl;
   return temp_c;
 };
-
 int main(){
   while (true){
     std::cout << "enter voltage value" << std::endl;
