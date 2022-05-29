@@ -7,6 +7,23 @@
 SdFat SD;
 FsFile file;                                    //create interface
 String filename_data = "test.csv", filename_info = "test.txt";
+String wire_mode = "4", compliance_v = "21", curr_min = "0.0001", curr_max = "0.005", curr_step = "0.0001", interval_c = "1";
+
+void send_to(String addr, String data){
+  if (addr == "4"){
+    Serial4.println(data);
+  } else if (addr == "5"){
+    Serial5.println(data);
+  } else if (addr == "both"){
+    Serial4.println(data);
+    Serial5.println(data);
+  } else{
+    Serial.println("address: " + addr + "not found");
+    return;
+  }
+  Serial.printf("sent: %s to %s\n", data.c_str(), addr.c_str());
+}
+
 double table[3][10]{
   {
     0.0000000E+00,
@@ -75,15 +92,13 @@ float get_temp_c(){
   return temp_c;
 }
 
-String wire_mode = "4", compliance_v = "21", curr_min = "0.0001", curr_max = "0.005", curr_step = "0.0001", interval_c = "1";
-
 void serialEvent(){
   String command = Serial.readStringUntil(' ');
   if (command == "help"){
-    Serial.println("command list:     \n ----");
+    Serial.println("command list:\nsetup\nsend\n ----\n");
   } else if (command == "setup"){
     Serial.println("setup - [file_name] [sample_id] [date]");
-    while (!Serial.available());                                        //wait for response from user
+    while (!Serial.available());                                    //wait for response from user
     String val1, val2, val3;
     for (int i = 0; i < 3 && Serial.available(); i++){              //read user input
       val1 = Serial.readStringUntil(' ');
@@ -95,18 +110,43 @@ void serialEvent(){
     filename_info += ".txt";
     file = SD.open(filename_info, FILE_WRITE); //open file
     file.println("sample_id: " + val2 + " date: " + val3);
+    Serial.println("setup - [compliance_v] [curr_min] [curr_max] [curr_step] [interval_c]");
+    compliance_v = Serial.readStringUntil(' ');
+    curr_min = Serial.readStringUntil(' ');
+    curr_max = Serial.readStringUntil(' ');
+    curr_step = Serial.readStringUntil(' ');
+    interval_c = Serial.readStringUntil(' ');  //read all the settings
+
     file.close();                              //close file
     filename_data = val1 += ".csv";
     Serial5.println("FORM:ELEM?");
     Serial5.println("SYST:BEEP:STAT OFF");
     while (!Serial5.available());
     file = SD.open(filename_data, FILE_WRITE); //open file
-    file.println(Serial5.readString());
+    file.println(Serial5.readString());        //write format to header
+
+    if (wire_mode == "4"){                     //set 4wire mode
+      Serial5.println("SYST:RSEN ON");
+    } else{
+      Serial5.println("SYST:RSEN OFF");
+    }
+
     file.close();                              //close file
     Serial.println("files written - " + filename_data + " : " + filename_info);
+  } else if (command == "send"){
+    String addr = Serial.readStringUntil(' ');
+    String data = Serial.readString();
+    send_to(addr, data);
   }
 }
+/*
+void serialEvent4(){
+  Serial.println(Serial4.readString());
+}
+void serialEvent5(){
 
+}
+*/
 void setup(void){
   Serial.begin(115200);                              //fast baud rate for pc com port
   Serial4.begin(115200);                             //fast baud rate for GWinstek
@@ -117,9 +157,10 @@ void setup(void){
     return;
   }
 
-  int com_state = 2;
+  int com_state = 1;   //-------------------------------------------  replace with 2
   Serial4.println("*IDN?");
   Serial5.println("*IDN?");
+  delay(1000);
   while (com_state > 0){
     if (Serial4.available() > 0){
       Serial.println(Serial4.readString());
@@ -130,6 +171,7 @@ void setup(void){
       com_state = com_state - 1;
     }
     Serial.printf("comstate = %d\n", com_state);
+    delay(100);
   }
   Serial.println("connected!");
 }
@@ -138,5 +180,6 @@ void loop(void){
   /*float temp_c = get_temp_c();
   Serial.print(" - temp - ");
   Serial.println(temp_c, 5);*/
-
+  if (Serial4.available())Serial.println(Serial4.readString());
+  if (Serial5.available())Serial.println(Serial5.readString());
 }
