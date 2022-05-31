@@ -8,6 +8,9 @@ SdFat SD;
 FsFile file;                                    //create interface
 String filename_data = "test.csv", filename_info = "test.txt";
 String wire_mode = "4", compliance_v = "21", curr_min = "0.0001", curr_max = "0.005", curr_step = "0.0001", interval_c = "1";
+int step = 0, step_end = 10;
+float temp_init = 0, temp_prev = 0, temp_now = 0;
+bool is_measuring = false;
 
 void send_to(String addr, String data){
   if (addr == "4"){
@@ -22,6 +25,40 @@ void send_to(String addr, String data){
     return;
   }
   Serial.printf("sent: %s to %s\n", data.c_str(), addr.c_str());
+}
+
+String get_range(String val){
+  float i = val.toFloat();
+  if (i <= 0.1){
+    if (i <= 0.01){
+      if (i <= 0.001){
+        if (i <= 0.0001){
+          if (i <= 0.00001){
+            return "0.00001";
+          } else{
+            return "0.0001";
+          }
+        } else{
+          return "0.001";
+        }
+      } else{
+        return "0.01";
+      }
+    } else{
+      return "0.1";
+    }
+  } else{
+    return "1";
+  }
+}
+
+void set_current(String current){
+  Serial5.println(":SYSTem:KEY 19");
+  //Serial5.println("SOUR:CURR:RANG " + get_range(current));
+  Serial5.println("SOUR:CURR:RANG:AUTO ON");
+  current += "E-3";
+  Serial5.println("SOUR:CURR " + current);
+  return;
 }
 
 double table[3][10]{
@@ -88,14 +125,17 @@ float get_temp_c(){
   while (!Serial4.available()); //wait for response from device
   String reading = Serial4.readString();
   float mv = reading.toFloat();
-  float temp_c = mv_to_c(mv) + InternalTemperature.readTemperatureC(); //compensate for room temperature with internal sensor
+  float temp_c = mv_to_c(mv);// +InternalTemperature.readTemperatureC(); //compensate for room temperature with internal sensor
   return temp_c;
 }
 
 void serialEvent(){
   String command = Serial.readStringUntil(' ');
-  if (command == "help"){
-    Serial.println("command list:\nsetup\nsend\n ----\n");
+  if (command == "restart"){
+    Serial.println("restarting");
+    _reboot_Teensyduino_();
+  } else if (command == "help"){
+    Serial.println("command list:\nsetup [file name] [sample id] [date]\n[compliance (V)] [current min (mA)] [current max (mA)] [current step (mA)] [interval (C)]\nsend [addr] [data]\n$addr [4 / 5 / both]\n ----\n");
   } else if (command == "setup"){
     Serial.println("setup - [file_name] [sample_id] [date]");
     while (!Serial.available());                                    //wait for response from user
@@ -110,43 +150,55 @@ void serialEvent(){
     filename_info += ".txt";
     file = SD.open(filename_info, FILE_WRITE); //open file
     file.println("sample_id: " + val2 + " date: " + val3);
-    Serial.println("setup - [compliance_v] [curr_min] [curr_max] [curr_step] [interval_c]");
+    Serial.println("setup - [compliance_v ~21V] [curr_min ~100uA] [curr_max ~10mA] [curr_step ~100uA] [interval_c ~2C]");
+    while (!Serial.available());
     compliance_v = Serial.readStringUntil(' ');
     curr_min = Serial.readStringUntil(' ');
     curr_max = Serial.readStringUntil(' ');
     curr_step = Serial.readStringUntil(' ');
     interval_c = Serial.readStringUntil(' ');  //read all the settings
-
+    temp_init = get_temp_c();
+    String temp_temp = temp_init;
+    Serial.println(compliance_v + " " + curr_min + " " + curr_max + " " + curr_step + " " + interval_c);
+    file.println("setup - [compliance_v] [curr_min] [curr_max] [curr_step] [interval_c]");
+    file.println("setup - " + compliance_v + " " + curr_min + " " + curr_max + " " + curr_step + " " + interval_c);
+    file.println("initial temperature: " + temp_temp);
     file.close();                              //close file
     filename_data = val1 += ".csv";
     Serial5.println("FORM:ELEM?");
     Serial5.println("SYST:BEEP:STAT OFF");
     while (!Serial5.available());
     file = SD.open(filename_data, FILE_WRITE); //open file
-    file.println(Serial5.readString());        //write format to header
-
+    file.println("TEMP," + Serial5.readString());        //write format to header
     if (wire_mode == "4"){                     //set 4wire mode
       Serial5.println("SYST:RSEN ON");
     } else{
       Serial5.println("SYST:RSEN OFF");
     }
-
+    float temp_steps = curr_max.toFloat() - curr_min.toFloat();
+    temp_steps = temp_steps / curr_step.toFloat();
+    step_end = temp_steps + 0.9999999999999999;
+    set_current(curr_min);
+    Serial5.println("SENS:VOLT:PROT:LEV " + compliance_v);
+    Serial5.println(":CONF:VOLT:DC");
     file.close();                              //close file
     Serial.println("files written - " + filename_data + " : " + filename_info);
+    is_measuring = true;
   } else if (command == "send"){
     String addr = Serial.readStringUntil(' ');
     String data = Serial.readString();
     send_to(addr, data);
+  } else if (command == "stop"){
+    is_measuring = false;
   }
 }
-/*
-void serialEvent4(){
-  Serial.println(Serial4.readString());
-}
-void serialEvent5(){
 
+String measure(){
+  Serial5.println("READ?");
+  while (!Serial5.available());
+  return Serial5.readString();
 }
-*/
+
 void setup(void){
   Serial.begin(115200);                              //fast baud rate for pc com port
   Serial4.begin(115200);                             //fast baud rate for GWinstek
@@ -157,18 +209,20 @@ void setup(void){
     return;
   }
 
-  int com_state = 1;   //-------------------------------------------  replace with 2
+  int com_state = 2;
   Serial4.println("*IDN?");
   Serial5.println("*IDN?");
   delay(1000);
   while (com_state > 0){
-    if (Serial4.available() > 0){
+    while (Serial4.available() > 0){
       Serial.println(Serial4.readString());
       com_state = com_state - 1;
+      Serial4.read();
     }
-    if (Serial5.available() > 0){
+    while (Serial5.available() > 0){
       Serial.println(Serial5.readString());
       com_state = com_state - 1;
+      Serial5.read();
     }
     Serial.printf("comstate = %d\n", com_state);
     delay(100);
@@ -177,9 +231,31 @@ void setup(void){
 }
 
 void loop(void){
-  /*float temp_c = get_temp_c();
-  Serial.print(" - temp - ");
-  Serial.println(temp_c, 5);*/
+  if (is_measuring == true){
+    temp_now = get_temp_c();
+    float temp_diff = temp_now;
+    temp_diff = temp_diff - temp_prev;
+    temp_prev = temp_now;
+    Serial.print(temp_now);
+    Serial.print("-");
+    Serial.println(temp_diff);
+    if (temp_diff >= interval_c.toFloat() || temp_diff <= -interval_c.toFloat()){
+      for (step = 1; step <= step_end; step++){
+        float current_now = step * curr_step.toFloat();
+        String print_current = current_now;
+        String print_temp = get_temp_c();
+        set_current(print_current);
+        Serial.print(step);
+        Serial.print(" of ");
+        Serial.println(step_end);
+        String value = measure();
+        Serial.println(" current: " + print_current + " --> " + value);
+        file = SD.open(filename_data, FILE_WRITE);
+        file.println(print_temp + "," + value);
+        file.close();
+      }
+    }
+  }
   if (Serial4.available())Serial.println(Serial4.readString());
   if (Serial5.available())Serial.println(Serial5.readString());
 }
