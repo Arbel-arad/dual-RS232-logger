@@ -21,7 +21,7 @@ void send_to(String addr, String data){
     Serial4.println(data);
     Serial5.println(data);
   } else{
-    Serial.println("address: " + addr + "not found");
+    Serial.println("address: " + addr + " not found");
     return;
   }
   Serial.printf("sent: %s to %s\n", data.c_str(), addr.c_str());
@@ -54,7 +54,7 @@ String get_range(String val){
 
 void set_current(String current){
   Serial5.println(":SYSTem:KEY 19");
-  //Serial5.println("SOUR:CURR:RANG " + get_range(current));
+  Serial5.println("OUTP:STAT ON");
   Serial5.println("SOUR:CURR:RANG:AUTO ON");
   current += "E-3";
   Serial5.println("SOUR:CURR " + current);
@@ -130,13 +130,17 @@ float get_temp_c(){
 }
 
 void serialEvent(){
-  String command = Serial.readStringUntil(' ');
+  String command = Serial.readStringUntil(' ', '\n');
   if (command == "restart"){
     Serial.println("restarting");
     _reboot_Teensyduino_();
   } else if (command == "help"){
     Serial.println("command list:\nsetup [file name] [sample id] [date]\n[compliance (V)] [current min (mA)] [current max (mA)] [current step (mA)] [interval (C)]\nsend [addr] [data]\n$addr [4 / 5 / both]\n ----\n");
   } else if (command == "setup"){
+    if (!SD.begin(SD_CONFIG)){                        //start SD card interface
+      Serial.println("SD initialization failed!");    //checkk SD initialization state
+      return;
+    }
     Serial.println("setup - [file_name] [sample_id] [date]");
     while (!Serial.available());                                    //wait for response from user
     String val1, val2, val3;
@@ -152,11 +156,13 @@ void serialEvent(){
     file.println("sample_id: " + val2 + " date: " + val3);
     Serial.println("setup - [compliance_v ~21V] [curr_min ~100uA] [curr_max ~10mA] [curr_step ~100uA] [interval_c ~2C]");
     while (!Serial.available());
-    compliance_v = Serial.readStringUntil(' ');
-    curr_min = Serial.readStringUntil(' ');
-    curr_max = Serial.readStringUntil(' ');
-    curr_step = Serial.readStringUntil(' ');
-    interval_c = Serial.readStringUntil(' ');  //read all the settings
+    for (int i = 0; i < 5 && Serial.available(); i++){              //read user input
+      compliance_v = Serial.readStringUntil(' ');
+      curr_min = Serial.readStringUntil(' ');
+      curr_max = Serial.readStringUntil(' ');
+      curr_step = Serial.readStringUntil(' ');
+      interval_c = Serial.readStringUntil(' ');  //read all the settings
+    }
     temp_init = get_temp_c();
     String temp_temp = temp_init;
     Serial.println(compliance_v + " " + curr_min + " " + curr_max + " " + curr_step + " " + interval_c);
@@ -189,35 +195,42 @@ void serialEvent(){
     String data = Serial.readString();
     send_to(addr, data);
   } else if (command == "stop"){
+    Serial5.println("OUTP:STAT OFF");
     is_measuring = false;
+    SD.end();
   }
 }
 
 String measure(){
   Serial5.println("READ?");
+  String temp = (get_temp_c());
   while (!Serial5.available());
-  return Serial5.readString();
+  String reading = Serial5.readString();
+  String output = temp += ",";
+  output += reading;
+  return output;
 }
 
 void setup(void){
-  Serial.begin(115200);                              //fast baud rate for pc com port
-  Serial4.begin(115200);                             //fast baud rate for GWinstek
-  Serial5.begin(57600);                              //slower baud rate for keithley
-  while (!Serial);                                   //wait for serial connection
-  if (!SD.begin(SD_CONFIG)){                         //start SD card interface
-    Serial.println("SD initialization failed!");     //checkk SD initialization state
+  Serial.begin(115200);                             //fast baud rate for pc com port
+  Serial4.begin(230400);                            //fast baud rate for GWinstek
+  Serial5.begin(57600);                             //slower baud rate for keithley
+  while (!Serial);                                  //wait for serial connection
+  if (!SD.begin(SD_CONFIG)){                        //start SD card interface
+    Serial.println("SD initialization failed!");    //checkk SD initialization state
     return;
   }
+  SD.end();
 
   int com_state = 2;
-  Serial4.println("*IDN?");
+  Serial4.println("*IDN?");                         //send identification request
   Serial5.println("*IDN?");
-  delay(1000);
+  delay(1000);                                      //wait for both responses
   while (com_state > 0){
     while (Serial4.available() > 0){
-      Serial.println(Serial4.readString());
+      Serial.println(Serial4.readString());         //read and print the responses
       com_state = com_state - 1;
-      Serial4.read();
+      Serial4.read();                               //clear buffers
     }
     while (Serial5.available() > 0){
       Serial.println(Serial5.readString());
@@ -227,35 +240,37 @@ void setup(void){
     Serial.printf("comstate = %d\n", com_state);
     delay(100);
   }
-  Serial.println("connected!");
+  Serial.println("connected!");                     //serial connection established
 }
 
 void loop(void){
   if (is_measuring == true){
-    temp_now = get_temp_c();
-    float temp_diff = temp_now;
+    temp_now = get_temp_c();                        //get new temperature value
+    float temp_diff = temp_now;                     //temperature difference from last measurement
     temp_diff = temp_diff - temp_prev;
-    temp_prev = temp_now;
-    Serial.print(temp_now);
-    Serial.print("-");
-    Serial.println(temp_diff);
+    Serial.printf("%f <-- %f | last measurement: %f\n", temp_now, temp_diff, temp_prev);
     if (temp_diff >= interval_c.toFloat() || temp_diff <= -interval_c.toFloat()){
+      file = SD.open(filename_data, FILE_WRITE);
       for (step = 1; step <= step_end; step++){
-        float current_now = step * curr_step.toFloat();
+        if (step == 1){
+          temp_prev = temp_now;
+        }
+        float current_now = step * curr_step.toFloat();                                     //calculate new current
         String print_current = current_now;
-        String print_temp = get_temp_c();
         set_current(print_current);
-        Serial.print(step);
-        Serial.print(" of ");
-        Serial.println(step_end);
+        Serial.printf("%i of %i\n", step, step_end);
         String value = measure();
         Serial.println(" current: " + print_current + " --> " + value);
-        file = SD.open(filename_data, FILE_WRITE);
-        file.println(print_temp + "," + value);
-        file.close();
+        file.println(value);                                             //write data to file
+        if (Serial.available()){
+          goto loop_end;
+        }
       }
+      file.close();
     }
+    set_current("0.0");
   }
-  if (Serial4.available())Serial.println(Serial4.readString());
-  if (Serial5.available())Serial.println(Serial5.readString());
+  loop_end:
+  if (Serial4.available())Serial.println("from 4: " + Serial4.readString());                //read all available serial data
+  if (Serial5.available())Serial.println("from 5: " + Serial5.readString());
 }
