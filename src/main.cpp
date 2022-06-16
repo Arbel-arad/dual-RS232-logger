@@ -2,13 +2,15 @@
 #include <SPI.h>
 #include <SdFat.h>
 #include <InternalTemperature.h>
+#include <vector>
+#include <math.h>
 
-#define SD_CONFIG  SdioConfig(FIFO_SDIO)
-SdFat SD;
-FsFile file;                                    //create interface
+#define SD_CONFIG  SdioConfig(FIFO_SDIO)        //set SD interface configuration for teensy defaults
+SdFat SD;                                       //create interface
+FsFile file;                                    //create file
 String filename_data = "test.csv", filename_info = "test.txt";
 String wire_mode = "4", compliance_v = "21", curr_min = "0.0001", curr_max = "0.005", curr_step = "0.0001", interval_c = "1";
-int step = 0, step_end = 10;
+uint32_t step = 0, step_end = 10, cycle = 0;
 float temp_init = 0, temp_prev = 0, temp_now = 0;
 bool is_measuring = false;
 
@@ -154,7 +156,7 @@ void serialEvent(){
     filename_info += ".txt";
     file = SD.open(filename_info, FILE_WRITE); //open file
     file.println("sample_id: " + val2 + " date: " + val3);
-    Serial.println("setup - [compliance_v ~21V] [curr_min ~100uA] [curr_max ~10mA] [curr_step ~100uA] [interval_c ~2C]");
+    Serial.println("setup - [compliance_v ~21V] [curr_min ~0.10mA] [curr_max ~10mA] [curr_step ~0.10mA] [interval_c ~2C]");
     while (!Serial.available());
     for (int i = 0; i < 5 && Serial.available(); i++){              //read user input
       compliance_v = Serial.readStringUntil(' ');
@@ -175,7 +177,7 @@ void serialEvent(){
     Serial5.println("SYST:BEEP:STAT OFF");
     while (!Serial5.available());
     file = SD.open(filename_data, FILE_WRITE); //open file
-    file.println("TEMP," + Serial5.readString());        //write format to header
+    file.println("TEMP,cycle," + Serial5.readString());        //write format to header
     if (wire_mode == "4"){                     //set 4wire mode
       Serial5.println("SYST:RSEN ON");
     } else{
@@ -195,9 +197,26 @@ void serialEvent(){
     String data = Serial.readString();
     send_to(addr, data);
   } else if (command == "stop"){
+    set_current("0.0");
+    delay(500);
     Serial5.println("OUTP:STAT OFF");
     is_measuring = false;
     SD.end();
+    Serial.println("done.");
+    return;
+  } else if (command == "reconnect_sd"){
+    SD.end();
+    while (!SD.begin()){
+      Serial.println("SD initialization failed!");  //checkk SD initialization state
+      delay(1000);                                  //wait for sd state change
+    }
+  } else if (command == "measure"){
+    String current = 0;
+    current = Serial.readString();
+    set_current(current);
+    Serial.println(measure());
+    set_current("0");
+    Serial5.println("OUTP:STAT OFF");
   }
 }
 
@@ -207,7 +226,8 @@ String measure(){
   while (!Serial5.available());
   String reading = Serial5.readString();
   String output = temp += ",";
-  output += reading;
+  output += cycle;
+  output += "," + reading;
   return output;
 }
 
@@ -251,18 +271,19 @@ void loop(void){
     Serial.printf("%f <-- %f | last measurement: %f\n", temp_now, temp_diff, temp_prev);
     if (temp_diff >= interval_c.toFloat() || temp_diff <= -interval_c.toFloat()){
       file = SD.open(filename_data, FILE_WRITE);
-      for (step = 1; step <= step_end; step++){
-        if (step == 1){
+      cycle++;
+      for (step = 0; step <= step_end; step++){
+        if (step == 0){
           temp_prev = temp_now;
         }
-        float current_now = step * curr_step.toFloat();                                     //calculate new current
+        float current_now = step * curr_step.toFloat() + curr_min.toFloat();               //calculate new current
         String print_current = current_now;
         set_current(print_current);
         Serial.printf("%i of %i\n", step, step_end);
         String value = measure();
         Serial.println(" current: " + print_current + " --> " + value);
-        file.println(value);                                             //write data to file
-        if (Serial.available()){
+        file.println(value);                                                               //write data to file
+        if (Serial.available() || is_measuring == !true){
           goto loop_end;
         }
       }
@@ -270,7 +291,7 @@ void loop(void){
     }
     set_current("0.0");
   }
-  loop_end:
-  if (Serial4.available())Serial.println("from 4: " + Serial4.readString());                //read all available serial data
+loop_end:
+  if (Serial4.available())Serial.println("from 4: " + Serial4.readString());               //read all available serial data
   if (Serial5.available())Serial.println("from 5: " + Serial5.readString());
 }
