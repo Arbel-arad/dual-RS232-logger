@@ -86,62 +86,61 @@ float get_c(float val){
 };
 
 
-
-
-std::vector<float> read;
+float step_now = 0.005, delta_v = 0.01;
+float step_max = 2 * 0.01;
 std::vector<float> short_read;
-int avg(){
-  float val = 0;
-  float sum = 0;
-  float short_sum = 0;
-  float delta_v = 5;
-  float step = 10, set_step = 10;
-  int step_max = 20;
-  while (true){
-    std::cin >> val;
-    short_read.push_back(val);
-    read.push_back(val);
-    while (read.size() > 15){
-      read.erase(read.begin());
-    }
-    while (short_read.size() > 3){
-      short_read.erase(short_read.begin());
-    }
-    for (int i = 0; i < read.size(); ++i){
-      sum = sum + read[i];
-      if (i < short_read.size()){
-        short_sum = short_sum + short_read[i];
-        std::cout << "read: " << short_read[i] << " size " << short_read.size() << std::endl;
-      }
-    }
-    float short_mov_avg = short_sum / short_read.size();
-    float mov_avg = sum / read.size();
-    short_sum = 0;
-    sum = 0;
-    step = set_step;
-    float delta_avg = short_mov_avg - mov_avg;
-    float power = delta_v / fabsf(delta_avg);
-    float temp_step = step * power;
-    if (temp_step <= step_max){
-      step = temp_step;
-    } else{
-      step = step_max;
-    }
-    std::cout << "avg - " << mov_avg << " shortAVG: " << short_mov_avg << " step: " << step << std::endl;
-  }
-  return step;
-}
+std::vector<float> read;
 
+float get_step_dynamic(float val){
+  float short_sum = 0;
+  float sum = 0;
+  short_read.push_back(val);
+  read.push_back(val);
+
+  while (read.size() > 15){
+    read.erase(read.begin());
+  }
+  while (short_read.size() > 3){
+    short_read.erase(short_read.begin());
+  }
+  for (uint8_t i = 0; i < read.size(); ++i){
+    sum = sum + read[i];
+    if (i < short_read.size()){
+      short_sum = short_sum + short_read[i];
+    }
+  }
+  float short_mov_avg = short_sum / short_read.size();
+  float mov_avg = sum / read.size();
+  short_sum = 0;
+  sum = 0;
+  step_now = 0.001;
+  float delta_avg = short_mov_avg - mov_avg;
+  std::cout << "short_mov_avg: " << short_mov_avg << " mov_avg: " << mov_avg << std::endl;
+
+  float power = 1000 * delta_v / fabsf(delta_avg);
+  power / 1000;
+  float temp_step = step_now * power;
+  if (temp_step <= step_max){
+    step_now = temp_step;
+  } else{
+    step_now = step_max;
+  }
+  std::cout << "step_now: " << step_now << " power: " << power << " temp_step: " << temp_step << " delta_avg: " << fabsf(delta_avg) << std::endl;
+  return step_now;
+}
 
 
 int main(){
   while (true){
-    avg();
-    std::cout << "enter voltage value" << std::endl;
-    float b;
-    std::cin >> b;
-    float a = mv_to_c(b);
-    std::cout << a << std::endl;
+    float val;
+    std::cin >> val;
+    get_step_dynamic(val);
   }
+  std::cout << "enter voltage value" << std::endl;
+  float b;
+  std::cin >> b;
+  float a = mv_to_c(b);
+  std::cout << a << std::endl;
+
 }
 

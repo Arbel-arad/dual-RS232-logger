@@ -13,6 +13,11 @@ String wire_mode = "4", compliance_v = "21", curr_min = "0.0001", curr_max = "0.
 uint32_t step = 0, step_end = 10, cycle = 0;
 float temp_init = 0, temp_prev = 0, temp_now = 0;
 bool is_measuring = false;
+float delta_v = 0.01;
+float step_now = 0.005;
+float step_max = 2 * curr_step.toFloat();
+String value = "0";
+String value_volt = "0";
 
 void send_to(String addr, String data){
   if (addr == "4"){
@@ -131,6 +136,56 @@ float get_temp_c(){
   return temp_c;
 }
 
+float get_step_dynamic(float val){
+  std::vector<float> short_read;
+  std::vector<float> read;
+  float short_sum = 0;
+  float sum = 0;
+  short_read.push_back(val);
+  read.push_back(val);
+
+  while (read.size() > 15){
+    read.erase(read.begin());
+  }
+  while (short_read.size() > 3){
+    short_read.erase(short_read.begin());
+  }
+  for (uint8_t i = 0; i < read.size(); ++i){
+    sum = sum + read[i];
+    if (i < short_read.size()){
+      short_sum = short_sum + short_read[i];
+    }
+  }
+  float short_mov_avg = short_sum / short_read.size();
+  float mov_avg = sum / read.size();
+  short_sum = 0;
+  sum = 0;
+  step_now = curr_step.toFloat();
+  float delta_avg = short_mov_avg - mov_avg;
+  float power = 1000 * delta_v / fabsf(delta_avg);
+  power / 1000;
+  float temp_step = step_now * power;
+  if (temp_step <= step_max){
+    step_now = temp_step;
+  } else{
+    step_now = step_max;
+  }
+  Serial.printf("step_now: %f", step_now);
+  return step_now;
+}
+
+String measure(){
+  Serial5.println("READ?");
+  String temp = (get_temp_c());
+  while (!Serial5.available());
+  String reading = Serial5.readString();
+  value_volt = reading.substring(0, reading.indexOf(','));
+  String output = temp += ",";
+  output += cycle;
+  output += "," + reading;
+  return output;
+}
+
 void serialEvent(){
   String command = Serial.readStringUntil(' ', '\n');
   if (command == "restart"){
@@ -139,6 +194,7 @@ void serialEvent(){
   } else if (command == "help"){
     Serial.println("command list:\nsetup [file name] [sample id] [date]\n[compliance (V)] [current min (mA)] [current max (mA)] [current step (mA)] [interval (C)]\nsend [addr] [data]\n$addr [4 / 5 / both]\n ----\n");
   } else if (command == "setup"){
+    Serial.readStringUntil(' ');
     if (!SD.begin(SD_CONFIG)){                        //start SD card interface
       Serial.println("SD initialization failed!");    //checkk SD initialization state
       return;
@@ -220,17 +276,6 @@ void serialEvent(){
   }
 }
 
-String measure(){
-  Serial5.println("READ?");
-  String temp = (get_temp_c());
-  while (!Serial5.available());
-  String reading = Serial5.readString();
-  String output = temp += ",";
-  output += cycle;
-  output += "," + reading;
-  return output;
-}
-
 void setup(void){
   Serial.begin(115200);                             //fast baud rate for pc com port
   Serial4.begin(230400);                            //fast baud rate for GWinstek
@@ -276,11 +321,11 @@ void loop(void){
         if (step == 0){
           temp_prev = temp_now;
         }
-        float current_now = step * curr_step.toFloat() + curr_min.toFloat();               //calculate new current
+        float current_now = get_step_dynamic(value_volt.toFloat()) * step + curr_min.toFloat();               //calculate new current
         String print_current = current_now;
         set_current(print_current);
         Serial.printf("%i of %i\n", step, step_end);
-        String value = measure();
+        value = measure();
         Serial.println(" current: " + print_current + " --> " + value);
         file.println(value);                                                               //write data to file
         if (Serial.available() || is_measuring == !true){
